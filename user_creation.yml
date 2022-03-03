@@ -1,0 +1,46 @@
+---
+- name: Exception Template User creation Playbook
+  hosts: all
+  order: sorted
+  become: yes
+  gather_facts: no
+
+  vars_prompt:
+  - name: gid
+    prompt: "\nEnter the group ID"
+    private: no
+
+  - name: uid
+    prompt: "\nEnter the user ID"
+    private: no
+
+  - name: "your_user"
+    prompt: "\nUser Account to the created"
+    private: no
+
+  - name: "your_group"
+    prompt: "\nGroup Account to be created"
+    private: no
+
+  - name: "your_comment" ## eg: asadmin account
+    prompt: "\nEnter comment"
+    private: no
+
+  tasks:
+    - name: Ensure {{ your_user }} exists with correct gid
+      group:
+        name: "{{ your_group }}"
+        gid: "{{ gid }}"
+        state: present
+      when: your_group != "" and gid != ""
+
+    - name: Add the user {{ your_user }}
+      user:
+        name: "{{ your_user }}"
+        uid: "{{ uid }}"
+        group: "{{ your_group }}"
+        shell: /bin/bash
+        comment: "{{ your_comment }}"
+        state: present
+      when: your_user != "" and uid != ""
+...
