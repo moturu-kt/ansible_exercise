@@ -1,0 +1,94 @@
+---
+- name: Filesystem Creation on Raw Disk
+  hosts: all
+  order: sorted
+  become: yes
+  gather_facts: no
+
+  vars_prompt:
+  - name: "disk_name" ## eg(/dev/sdb,/dev/sdc)
+    prompt: "\nDisk used for creating partition [/dev/sd*]"
+    private: no
+
+  - name: "pv_name" ## eg(/dev/sdb1,/dev/sdc1)
+    prompt: "\nDisk name after creating partition [/dev/sd*1]"
+    private: no
+
+  - name: "vg_name" ## Volume Groupname
+    prompt: "\nEnter VG name"
+    private: no
+
+  - name: "file_system" ## ext4 or xfs
+    prompt: "\nType of file system required"
+    private: no
+
+  pre_tasks:
+    - name: Validating The Entered Values
+      fail:
+        msg: "Exiting the playbook as desired value is not entered"
+      when:
+        - disk_name == "" or (disk_name|length) < "2"
+        - pv_name == "" or (pv_name|length) < "3"
+        - vg_name == "" or (vg_name|length) < "3"
+        - file_system == "" or (file_system|length) < "2"
+
+  tasks:
+   - name: Create Partition using fdisk
+     shell:
+       /bin/echo -e "n\np\n1\n\n\nt\n8e\nw" | sudo fdisk "{{ disk_name }}"
+
+   - name: Creating volume group
+     lvg:
+       vg: "{{ vg_name }}"
+       pvs: "{{ pv_name }}"
+       pesize: '4'
+     when: vg_name != "" and pv_name != ""
+
+   - name: Create logical groups for file-system
+     lvol:
+       vg: "{{ vg_name }}"
+       lv: "{{ item.lvname }}"
+       size: "{{ item.size }}"
+     with_items:
+       - { lvname: 'appserverlv', size: '15g' }
+       - { lvname: 'loglv', size: '5g' }
+       - { lvname: 'mrlv', size: '1g' }
+     when: vg_name != ""
+
+   - name: Create the file system on newly created Logical volume
+     filesystem:
+       fstype: "{{ file_system }}"
+       dev: "/dev/mapper/{{ vg_name }}-{{ item.lvname }}"
+     with_items:
+       - { lvname: 'appserverlv' }
+       - { lvname: 'loglv' }
+       - { lvname: 'mrlv' }
+     when: file_system != "" and vg_name != ""
+
+   - name: Mount the created filesystem
+     mount:
+       path: "{{ item.mount_point }}"
+       src: "/dev/mapper/{{ vg_name }}-{{ item.lvname }}"
+       fstype: "{{ file_system }}"
+       opts: defaults
+       dump: '1'
+       passno: '2'
+       state: mounted
+     with_items:
+       - { mount_point: '/appserver', lvname: 'appserverlv' }
+       - { mount_point: '/log', lvname: 'loglv' }
+       - { mount_point: '/mr', lvname: 'mrlv' }
+     when: file_system != "" and vg_name != ""
+
+   - name: Change ownership and group permissions
+     file:
+       path: "{{ item.dir }}"
+       owner: asadmin
+       group: asadmin
+       mode: '0775'
+       recurse: yes
+     with_items:
+       - { dir: '/appserver' }
+       - { dir: '/log' }
+       - { dir: '/mr' }
+...
