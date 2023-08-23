@@ -1,0 +1,69 @@
+#Playbook for VG expansion and Filesystem creation
+
+---
+- name: VG expansion and Filesystem creation
+  hosts: all
+  order: sorted
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Scanning the already extended SDB
+      shell:
+        /usr/bin/echo 1 > /sys/block/sdb/device/rescan
+        
+    - name: Resize the extended disk
+      parted:
+        device: /dev/sdb
+        number: 1
+        part_end: "100%"
+        resize: true
+        state: present
+        
+    - name: Resize the Physical Volume
+      shell:
+        /usr/sbin/pvresize /dev/sdb1
+    
+    - name: Take backup of the FSTAB file
+      copy:
+        src: /etc/fstab
+        dest: /etc/fstab-backup
+    
+    - name: Creating LV with the size of all remaining space in VG
+      lvol:
+        vg: datavg
+        lv: datalv
+        size: +100%FREE
+        force: yes
+
+    - name: Format newly created LV with EXT4 filesystem
+      filesystem:
+        fstype: ext4
+        dev: /dev/mapper/datavg-datalv
+        opts: -c
+
+    - name: Create directory data1 if does not exist
+      file:
+        path: /data
+        state: directory
+        mode: '0755'
+
+    - name: Mount the LV on /data
+      mount:
+        path: /data
+        src: /dev/mapper/datavg-datalv
+        fstype: ext4
+        backup: yes
+        opts: defaults
+        dump: '1'
+        passno: '2'
+        state: mounted
+
+    - name: Change ownership and group permissions of the mount point
+      file:
+        path: /data
+        owner: asadmin
+        group: asadmin
+        mode: '2775'
+        recurse: no
+...
